@@ -21,17 +21,22 @@ from qqbot_filters import is_blocked
 from plugins.common.access import event_is_allowed
 
 from .config import Config
-from .search import download_hit, is_unsafe, search_images, send_image_bytes
+from .search import collect_images, is_unsafe, search_images, send_image_bytes
+from .verify import build_verify_fn
 
 plugin_config = get_plugin_config(Config)
 configure_blocked(plugin_config.blocked_users)
+verify_fn = build_verify_fn(plugin_config)
 
 _last_request: dict[int, float] = {}
 _daily_user: dict[int, int] = {}
 _daily_total = 0
 _day = date.today()
 
-HELP_TEXT = "🖼 用法：/img 柴犬\n别名：/找图、/搜图。搜的是网上的真实图片，不是 AI 画。"
+HELP_TEXT = (
+    "🖼 用法：/img 柴犬\n"
+    "别名：/找图、/搜图。搜的是网上的真实图片，不是 AI 画；发之前会先核对内容对不对得上。"
+)
 
 
 def _allowed(event: MessageEvent) -> bool:
@@ -120,20 +125,23 @@ async def _handle_img(
         await matcher.finish("没搜到能用的图，换个说法试试。")
 
     max_bytes = int(plugin_config.image_search_max_file_mb * 1024 * 1024)
+    images, had_rejections = await collect_images(
+        query,
+        hits,
+        plugin_config.image_search_send_count,
+        timeout=plugin_config.image_search_timeout_seconds,
+        max_bytes=max_bytes,
+        max_candidates=plugin_config.image_search_max_candidates,
+        verify_fn=verify_fn,
+    )
+    if not images:
+        if had_rejections:
+            await matcher.finish(f"搜到的图都对不上「{query}」，换个更具体的说法试试。")
+        await matcher.finish("图找到了但都下不动，换个说法再试。")
+
     group_id, user_id = _target(event)
     sent = 0
-    for hit in hits:
-        if sent >= plugin_config.image_search_send_count:
-            break
-        try:
-            data, _media_type = await download_hit(
-                hit,
-                timeout=plugin_config.image_search_timeout_seconds,
-                max_bytes=max_bytes,
-            )
-        except Exception as exc:
-            logger.info(f"图片下载失败，换下一张（{hit.image_url[:80]}）：{exc}")
-            continue
+    for data, _media_type in images:
         ok = await send_image_bytes(
             bot,
             data=data,
@@ -144,7 +152,7 @@ async def _handle_img(
         if not ok:
             continue
         sent += 1
-        if sent < plugin_config.image_search_send_count:
+        if sent < len(images):
             await asyncio.sleep(0.4)
 
     if sent == 0:

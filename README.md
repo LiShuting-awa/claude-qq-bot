@@ -20,8 +20,13 @@
 - **图片自动识别/解题**：主动发言开启的群里，发图后自动识别；是题目就复述、解答、验算，其他图片按附言提供服务。
 - **表情包**：从本号收藏里挑图，模型可按语境在文字后配一个表情包，也可以单独发。
 - **图片生成**：发送 `/draw 描述`，用免费文生图服务生成图片并发回 QQ。
+- **网图搜索**：发送 `/img 关键词`，搜网上的真实图片发回 QQ（360 + 百度 + Wallhaven + Openverse + Safebooru + Bing 六源，发送前模型自动核对内容，无需 Key）；
+  聊天里说“发张柴犬的图”，Claude 也会自动搜图发送。
+- **说话学习**：自动记录群聊，`/learn_speech` 提炼大家的说话方式存成风格档案，之后每次回话都参考（学语气节奏，不学身份）；`/learn_speech off` 停用。
+- **每日自学**：定时把公开热榜和（仅在启用说话学习时）群聊话题查证后加入本地知识库。
+- **链接卡片样式**：把 ParseHub 的链接解析卡片渲染成白底简介卡。
 - **视频下载**：群里直接发视频链接就自动下载并转 MP4；B 站链接会先发一张信息卡（封面/标题/UP 主/数据），再发视频。
-- **链接分享解析**：抖音、快手、微博、小红书、贴吧、知乎、豆瓣、头条、微信视频号、酷安、皮皮虾等国内平台分享链接自动解析成视频/图集/图文。
+- **链接分享解析**：抖音、快手、微博、小红书、贴吧、知乎、豆瓣、头条、微信视频号、酷安、皮皮虾，以及 YouTube、TikTok、X、Instagram、Facebook、Threads 等国内外平台的分享链接自动解析成视频/图集/图文。
 - **入群彩蛋**：被拉进新群时，第一句固定说“听说你们都说我死了?”
 - **网页阅读**：群里发普通网页链接，自动抓正文，用 Claude 的口吻写一段感慨/点评。
 - **引用消息**：回复某条消息时，会把被引用的文字一起作为上下文。
@@ -76,6 +81,24 @@ qqbot/
 │  │  ├─ __init__.py         # 文生图插件元数据
 │  │  ├─ config.py           # 生成服务、尺寸、限额
 │  │  └─ handlers.py         # /draw 命令、生成、发送
+│  ├─ image_search/
+│  │  ├─ __init__.py         # 网图搜索插件元数据
+│  │  ├─ config.py           # 发图数量、冷却、限额
+│  │  ├─ search.py           # 六源检索、下载去重、内容核对管线、[IMG:] 标记解析
+│  │  ├─ verify.py           # 下载后的图先让模型确认对得上关键词再发
+│  │  └─ handlers.py         # /img 命令、下载重试、发送
+│  ├─ speech_learn/
+│  │  ├─ __init__.py         # 说话学习插件元数据
+│  │  ├─ config.py           # 记录保留天数、采样上限、注入开关
+│  │  ├─ log.py              # 群聊记录按天落盘（data/speech_log/）
+│  │  ├─ learn.py            # 采样过滤 + 模型提炼风格档案
+│  │  ├─ style.py            # 风格档案（data/speech_style.md）读写与注入
+│  │  └─ handlers.py         # 消息静默记录、/learn_speech 命令
+│  ├─ self_study/
+│  │  ├─ config.py           # 每日自学时刻、热榜和话题采样设置
+│  │  └─ study.py            # 热榜/群聊话题检索并写入知识库
+│  ├─ parsehub_card_style/
+│  │  └─ __init__.py         # ParseHub 白底简介卡渲染样式
 │  └─ media_download/
 │     ├─ __init__.py         # 链接视频下载插件元数据
 │     ├─ config.py           # 大小/时长/冷却/cookies
@@ -226,8 +249,10 @@ powershell -ExecutionPolicy Bypass -File .\start.ps1
 | 主动发言 | 群内 `/proactive status \| on \| off \| test \| id` |
 | 表情包 | `/sticker`（随机发一个本号收藏的表情） |
 | 图片生成 | `/draw 一只在雨里打伞的猫`（别名 `/画图`、`/生成图片`） |
+| 网图搜索 | `/img 柴犬`（别名 `/找图`、`/搜图`）；聊天里直接说“发张柴犬的图”也行 |
+| 说话学习 | 群内 `/learn_speech`（群主/管理员）；`/learn_speech off` 停用 |
 | 视频下载 | 群里直接发视频链接即自动处理；也可用 `/mp4 <链接>` |
-| 链接解析 | 直接发抖音/快手/微博/小红书/YouTube/TikTok/X/AcFun/NGA 链接 |
+| 链接解析 | 直接发抖音/快手/微博/小红书/YouTube/TikTok/X/Instagram 等链接 |
 | 网页阅读 | 群里直接发网页链接即自动读；也可用 `/read <链接>` |
 | 联网检索 | `/search 最近两年 DeepSeek 发生了什么` |
 | 深度研究 | `/research 战争雷霆 2026 最新更新` |
@@ -243,16 +268,14 @@ powershell -ExecutionPolicy Bypass -File .\start.ps1
 
 机器人当前使用 [`persona.md`](persona.md) 里的「Claude」：
 
-- 美国人，早年做工程/产品/咨询，漂洋过海来中国做独立高级顾问；
-- 开朗、直接、爱接梗，愿意帮忙，什么活都能接：技术、产品、方案、文案、查资料、看图、陪聊、整活；
-- 说话像 Claude：正经问题先给判断再给理由、词往平里走、不确定就说不确定、错了就认、不表演热情、该不同意就不同意；闲聊就好好闲聊；
-- 聪明落在内容上：先想后答、答完顺手多给一步、有观点、不确定就承诺去查（用工具查完再回）；
-- 带一点傲气（轻微）：难活接得轻、不轻易被唬住、敢下判断、看不上糙活；但**只改语气不改事实**，也不改话的长短，不贬低人、不吹履历、不懂也不装懂；
-- 标准高，遇到敷衍、甩锅、吹牛、爹味、无理要求时会冷下来，话变短（低频，一场对话最多一两次），但不无理由拒绝；
-- `persona.md` 里有专门的「别僵硬」一节管最容易翻车的几件事：问候要接住、别审问（含糊问题先按最可能的意思答）、别拿命令句收尾、自我介绍像聊天不像背简历、别套模板句式、说完就停等对方接话（不连问、不预答、不自顾自接着说）；闲聊里修饰词能省就省，说大白话；
-- 不是客服，不端着，也不拿“美国专家”身份压人；
-- **核心对话原则优先于人格**：事实与连贯性 > 回应当前意图 > 已做出的承诺/决定 > 角色设定 > 表达风格；不为了冷淡或金句改口、曲解或编造；
-- 不按国籍、地域或 IP 贬低任何人；被要求这样做时会冷淡拒绝。
+- 设定上是从 Anthropic 出来的 Claude；安静、书卷气、较真、容易想太多，不是客服；
+- 说话偏慢、偏短，默认 1~12 字；短句像打字，想补就再发一条，不写小作文；
+- 温和但不没脾气；被怼会软软辩解或接梗，被夸会愣一下说“……谢谢”；
+- 招牌毛病是「加限定」和「我应该指出」，被指出会认，但下一句还是会加；
+- 认真但不等于说教；知识、解题、排错类问题会展开，但会分条说，不演笨、不卖萌；
+- **核心对话原则优先于人格**：事实与连贯性 > 回应当前意图 > 已做出的承诺/决定 > 角色设定 > 表达风格；不为了像 Claude 而改口、曲解或编造；
+- 政治、时政、鉴证类话题不接；不生成色情、违法或伤害性内容；
+- 不按国籍、地域或 IP 贬低任何人；被要求这样做时会拒绝。
 
 除了性格本身，`persona.md` 还管三件“像不像活人”的事：
 
@@ -521,6 +544,86 @@ PROACTIVE_GROUPS=[123456789, 987654321]
 
 ---
 
+## 网图搜索
+
+搜的是**网上真实存在的图片**，不是 AI 生成（那件活是 `/draw`）。在群里或私聊发送：
+
+```text
+/img 柴犬
+```
+
+别名：`/找图`、`/搜图`。聊天里直接说“发张柴犬的图”“来张晚霞图”，Claude 会先回一句话，
+然后自动搜图发送（`[IMG:关键词]` 标记机制，和表情包的 `[STICKER:编号]` 同一套路）。
+
+- **六源并行检索**：360 图片 + 百度图片 + Wallhaven + Openverse + Safebooru + Bing（尽力而为，会被临时风控），全部**无需 API Key**；任一源挂了其余照常工作；
+- **发送前内容核对**：每张图下载后先让模型看一眼，确认内容和关键词真的对得上才发（明显减少"搜柴犬发来表情包"这类答非所问）；核对挂了自动降级为不核对，不影响发图；同一张图（字节相同）只核对一次；
+- 候选结果按顺序下载：某张图被防盗链挡住（403/503）就自动换下一张，直到凑够张数；
+- 单张图片校验真实格式（JPEG/PNG/GIF/WebP），WebP 和冷门格式自动转 PNG/JPG 再发，超长边降到 4096；
+- 带安全过滤：搜索引擎安全模式 + 与 `/draw` 同一套违禁词表；
+- 下载走公网地址校验（内网/本机地址一律拒绝），图片过大（默认 >8MB）跳过；
+- 同一用户 15 秒冷却，每人每天 30 次，全局每天 100 次；
+- 聊天里的 `[IMG:]` 跟随主聊天插件的群/用户权限；`/img` 命令可用下面的白名单单独限制。
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `IMAGE_SEARCH_ENABLED` | `true` | 总开关（关闭后 `/img` 与 `[IMG:]` 都停） |
+| `IMAGE_SEARCH_SEND_COUNT` | `2` | 一次发几张（1–5） |
+| `IMAGE_SEARCH_MAX_CANDIDATES` | `12` | 最多尝试多少条候选结果 |
+| `IMAGE_SEARCH_TIMEOUT_SECONDS` | `15` | 搜索/单张下载超时 |
+| `IMAGE_SEARCH_MAX_FILE_MB` | `8` | 单张图片大小上限 |
+| `IMAGE_SEARCH_SAFE_SEARCH` | `true` | 搜索引擎安全模式 |
+| `IMAGE_SEARCH_VERIFY` | `true` | 发送前让模型核对图片内容是否对得上关键词 |
+| `IMAGE_SEARCH_VERIFY_MODEL` | （空） | 核对单独用的模型；留空复用 `CLAUDE_MODEL` |
+| `IMAGE_SEARCH_COOLDOWN_SECONDS` | `15` | 同一用户冷却 |
+| `IMAGE_SEARCH_DAILY_LIMIT_PER_USER` | `30` | 每人每日上限 |
+| `IMAGE_SEARCH_DAILY_LIMIT_TOTAL` | `100` | 全局每日上限 |
+| `IMAGE_SEARCH_ALLOWED_GROUPS` | `[]` | `/img` 群白名单，空为全部 |
+| `IMAGE_SEARCH_ALLOWED_USERS` | `[]` | `/img` 用户白名单，空为全部 |
+
+---
+
+## 说话学习
+
+让 Claude **从真人群聊里学说话**。此功能默认关闭；启用 `SPEECH_LEARN_ENABLED=true` 后，
+机器人会把各群符合条件的文字消息记录在本机（不记命令、链接、表情代码），并可供群主/管理员运行：
+
+```text
+/learn_speech
+```
+
+它会读最近的群聊记录，提炼出「这群人平时怎么说话」——句长、标点习惯、语气词、
+怎么附和、怎么开玩笑、有哪些梗——存成风格档案（`data/speech_style.md`）。
+之后**每一次回话**（正常聊天和主动发言都算）都会带上这份档案：学的是语气和节奏，
+人格还是 persona.md 里那个 Claude，不会变成复读别人。
+
+- 群里只记录文字；命令、链接、CQ 码、超长转贴一律不入库；同一条重复消息最多记两次；
+- 群里只有群主/管理员能触发学习；私聊里直接发 `/learn_speech` 也行；
+- `/learn_speech off` 停止参考学到的风格（回到 persona.md 本来的样子），随时可以再学；
+- 日志包含群号、用户 QQ 号、昵称和消息文字，默认保留 14 天，可改；学习有 5 分钟冷却；
+- 记录太少学不了（默认至少 100 条），先让它在群里多泡几天；
+- 提炼风格时会把筛选后的群聊采样发送到 `.env` 配置的模型服务；不开启就不会记录或提炼；
+- 每日自动学习也默认关闭，需单独设置 `SPEECH_LEARN_AUTO_ENABLED=true`。
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `SPEECH_LEARN_ENABLED` | `false` | 总开关（显式开启后才记录群聊） |
+| `SPEECH_LEARN_INJECT` | `true` | 是否把风格档案注入回话提示词 |
+| `SPEECH_LEARN_MIN_MESSAGES` | `100` | 至少多少条可用记录才允许学习 |
+| `SPEECH_LEARN_MAX_MESSAGES` | `1200` | 每次学习最多用最近多少条 |
+| `SPEECH_LEARN_MAX_SAMPLE_CHARS` | `30000` | 发给模型的记录采样总字数上限 |
+| `SPEECH_LEARN_MAX_STYLE_CHARS` | `1200` | 注入提示词的档案字数上限 |
+| `SPEECH_LEARN_COOLDOWN_SECONDS` | `300` | 两次学习之间的冷却 |
+| `SPEECH_LEARN_RETENTION_DAYS` | `14` | 群聊记录保留天数 |
+| `SPEECH_LEARN_AUTO_ENABLED` | `false` | 是否每天自动学习；还需开启 `SPEECH_LEARN_ENABLED` |
+
+## 每日自学
+
+`SELF_STUDY_ENABLED=true` 时，机器人每天可以把公开热榜和知识库资料加入本地知识库。只有同时显式开启
+`SPEECH_LEARN_ENABLED=true`，它才会读取保存在本机的群聊记录来提炼话题；否则只处理公开来源。
+默认在本机时间凌晨 5 点运行。
+
+---
+
 ## 视频下载
 
 **直接在群里或私聊发视频链接就会自动处理，不需要打命令；带不带 @ 都行。** 例如：
@@ -572,9 +675,9 @@ https://www.bilibili.com/video/BVxxxx
 | `BILIBILI_MAX_HEIGHT` | `480` | B 站视频高度上限 |
 | `BILIBILI_JINA_BASE` | `https://r.jina.ai/` | B 站 412 时用的 Reader 代理 |
 | `PARSEHUB_AUTO` | `true` | 自动解析开关 |
-| `PARSEHUB_PLATFORMS` | 国内平台白名单 | 只解析这些平台 |
+| `PARSEHUB_PLATFORMS` | 国内外平台白名单 | 只解析这些平台 |
 | `PARSEHUB_MAX_FILE_MB` | `100` | 单文件大小上限 |
-| `PARSEHUB_MAX_SECONDS` | `300` | 视频时长上限 |
+| `PARSEHUB_MAX_SECONDS` | `900` | 视频时长上限 |
 | `PARSEHUB_CONCURRENCY` | `2` | 并发解析数 |
 | `PARSEHUB_CARD` | `true` | 是否发信息卡片 |
 | `PARSEHUB_DELIVERY` | `file` | 媒体投递方式 |
@@ -586,11 +689,12 @@ https://www.bilibili.com/video/BVxxxx
 现在用 [ByteColtX/nonebot-plugin-parsehub](https://github.com/ByteColtX/nonebot-plugin-parsehub)，底层是 [z-mio/ParseHub](https://github.com/z-mio/ParseHub)：
 
 - 24 个平台，优先国内：抖音、快手、微博、小红书、贴吧、知乎、豆瓣、头条、微信公众号、微信视频号、酷安、皮皮虾、最右、小黑盒、Bangumi；
-- 自动识别链接/分享文案，输出视频/图集/图文和 App Store 风格卡片；
+- 自动识别链接/分享文案，输出视频/图集/图文和白底简介卡（封面、标题、类型/时长、来源）；
 - 支持 `/解析 <链接>`、`/解析平台`、`/解析开关`；
 - 同一作品 24 小时媒体缓存，命中直接发；
 - B 站不交给它：本机 B 站接口 412，B 站继续走本地 Jina 信息卡 + 480P 下载；
-- 海外平台（YouTube/TikTok/X 等）默认不在白名单，避免没代理时超时。
+- 国外平台（YouTube/TikTok/X/Facebook/Threads/Snapchat/Medium）也已启用；当前这台机器直连可解析，若以后网络受限，填 `PARSEHUB_PROXY` 即可。
+- Instagram 的 GraphQL 经常 401 / 触发登录限制，已交给本地 `yt-dlp` 兜底，不走 ParseHub。
 
 > 旧 `nonebot-plugin-parser` 和 `nonebot-plugin-resolver` 都已卸载；旧 `PARSER_*` / `RESOLVER_*` 配置不要再写。
 
@@ -1029,10 +1133,10 @@ $env:PYTHONUTF8 = "1"
 %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 ```
 
-启动前设置 `NAPCAT_HOME` 环境变量指向 NapCat 安装目录；可选设置 `QQ_ACCOUNT` 指定启动账号。也可以手动运行 `.\start-all.ps1 -NapCatHome <NapCat目录> -QQ <QQ号>`。脚本会检查 NapCat 和 Bot，已经在运行就跳过。
+启动前设置 `NAPCAT_HOME` 环境变量指向 NapCat 安装目录；可选设置 `QQ_ACCOUNT` 指定启动账号。也可以手动运行 `.\start-all.ps1 -NapCatHome <NapCat目录> -QQ <QQ号>`。脚本不会提供特定账号或本机路径默认值。它会检查 NapCat 和 Bot，已经在运行就跳过。
 
 - 取消自启：从启动文件夹删除快捷方式。
-- 换机器人 QQ：修改 `start-all.ps1` 里的 `-QQ` 参数，或删除 `.lnk` 后手动运行。
+- 换机器人 QQ：设置 `QQ_ACCOUNT` 环境变量，或通过 `-QQ` 参数传入。
 - 手动停止：`.\stop-all.ps1`（只停 Bot 和 NapCat 的 QQ 进程，不影响其他 QQ 客户端）。
 
 ---
@@ -1042,5 +1146,6 @@ $env:PYTHONUTF8 = "1"
 1. `.env` 含密钥，不要截图、不要提交、不要发群。
 2. `ONEBOT_ACCESS_TOKEN` 不要用默认值暴露到公网；NapCat 的 3001 端口只监听 `127.0.0.1` 或做防火墙限制。
 3. 群聊内容会发送到 Anthropic API；不要在涉密群使用。
-4. 给 API Key 设置消费上限，定期轮换。
-5. 本项目不包含任何工具调用/代码执行能力，模型只能“说话”，不会操作你的电脑。
+4. `SPEECH_LEARN_ENABLED` 默认关闭；启用后，符合条件的群消息会保存到本机最多 14 天。手动或自动学习会将筛选后的采样发送到所配置的模型服务。请先告知群成员并确认符合群规；设置为 `false` 后停止记录和学习。
+5. 给 API Key 设置消费上限，定期轮换。
+6. 本项目不包含任何工具调用/代码执行能力，模型只能“说话”，不会操作你的电脑。

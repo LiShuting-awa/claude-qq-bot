@@ -11,6 +11,7 @@ from typing import Any
 import anthropic
 from anthropic import AsyncAnthropic
 from nonebot import logger
+from plugins.speech_learn.style import style_block as speech_style_block
 from qqbot_stickers import stickers
 
 from .config import Config
@@ -189,7 +190,7 @@ class ProactiveSpeaker:
                 "不要每条都配，不要解释。"
             )
 
-        system = f"{persona}\n\n{instructions}"
+        system = f"{persona}{speech_style_block()}\n\n{instructions}"
 
         model = self._config.proactive_model.strip() or self._config.claude_model
         try:

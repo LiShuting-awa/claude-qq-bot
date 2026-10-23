@@ -4,8 +4,18 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from plugins.common.env import HeaderMap
+
 
 class Config(BaseModel):
+    # ---- LLM（与 claude_chat / proactive_chat 共用同一组 .env 变量，用于结果核对）----
+    anthropic_api_key: str = ""
+    anthropic_auth_token: str = ""
+    anthropic_auth_token_file: str = ""
+    anthropic_base_url: str = ""
+    anthropic_custom_headers: HeaderMap = Field(default_factory=dict)
+    claude_model: str = "claude-sonnet-4-6"
+
     image_search_enabled: bool = True
     """总开关。"""
 
@@ -23,6 +33,12 @@ class Config(BaseModel):
 
     image_search_safe_search: bool = True
     """是否启用搜索引擎的安全过滤。"""
+
+    image_search_verify: bool = True
+    """发送前让模型核对图片内容是否真的对得上关键词；明显提高精准度。"""
+
+    image_search_verify_model: str = ""
+    """可选：核对单独用另一个（带视觉的）模型；留空复用 claude_model。"""
 
     image_search_cooldown_seconds: int = Field(default=15, ge=0, le=3600)
     """同一用户两次搜图的冷却。"""
