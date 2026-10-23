@@ -1014,6 +1014,14 @@ AGENT_TOOLS: list[dict[str, Any]] = [
             "required": ["game"],
         },
     },
+    {
+        "name": "world_news",
+        "description": (
+            "看今天的外媒头条（纽约每日新闻、BBC、卫报、半岛电视台、纽约时报等），"
+            "返回汇总和几篇原文的详细摘录。用户问今天/最新国际新闻、外国新闻时用。"
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -1069,6 +1077,13 @@ async def _execute_agent_tool(name: str, arguments: dict[str, Any]) -> str:
             return "游戏名为空"
         results = await game_intel(game, limit=plugin_config.community_hot_limit)
         return format_game(game, results) or "没查到相关游戏情报"
+
+    if name == "world_news":
+        try:
+            from plugins.world_news.news import build_digest
+        except Exception:
+            return "国际新闻插件没装好"
+        return await build_digest()
 
     return f"未知工具：{name}"
 

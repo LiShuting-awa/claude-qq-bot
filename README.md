@@ -24,6 +24,7 @@
   聊天里说“发张柴犬的图”，Claude 也会自动搜图发送。
 - **说话学习**：自动记录群聊，`/learn_speech` 提炼大家的说话方式存成风格档案，之后每次回话都参考（学语气节奏，不学身份）；`/learn_speech off` 停用。
 - **每日自学**：定时把公开热榜和（仅在启用说话学习时）群聊话题查证后加入本地知识库。
+- **国际新闻**：`/news` 聚合 BBC、卫报、半岛电视台等外媒 RSS，合并去重并摘录原文；可选每天纽约时间早 8 点向指定群播报，无需新闻 API Key。
 - **链接卡片样式**：把 ParseHub 的链接解析卡片渲染成白底简介卡。
 - **视频下载**：群里直接发视频链接就自动下载并转 MP4；B 站链接会先发一张信息卡（封面/标题/UP 主/数据），再发视频。
 - **链接分享解析**：抖音、快手、微博、小红书、贴吧、知乎、豆瓣、头条、微信视频号、酷安、皮皮虾，以及 YouTube、TikTok、X、Instagram、Facebook、Threads 等国内外平台的分享链接自动解析成视频/图集/图文。
@@ -99,6 +100,11 @@ qqbot/
 │  │  └─ study.py            # 热榜/群聊话题检索并写入知识库
 │  ├─ parsehub_card_style/
 │  │  └─ __init__.py         # ParseHub 白底简介卡渲染样式
+│  ├─ world_news/
+│  │  ├─ __init__.py         # 国际新闻插件元数据
+│  │  ├─ config.py           # RSS、摘录和早报配置
+│  │  ├─ news.py             # 多源 RSS 聚合、去重和原文摘录
+│  │  └─ handlers.py         # /news 命令和纽约时间早报
 │  └─ media_download/
 │     ├─ __init__.py         # 链接视频下载插件元数据
 │     ├─ config.py           # 大小/时长/冷却/cookies
@@ -251,6 +257,7 @@ powershell -ExecutionPolicy Bypass -File .\start.ps1
 | 图片生成 | `/draw 一只在雨里打伞的猫`（别名 `/画图`、`/生成图片`） |
 | 网图搜索 | `/img 柴犬`（别名 `/找图`、`/搜图`）；聊天里直接说“发张柴犬的图”也行 |
 | 说话学习 | 群内 `/learn_speech`（群主/管理员）；`/learn_speech off` 停用 |
+| 国际新闻 | `/news`（别名 `/今日新闻`、`/国际新闻`、`/外媒`、`/世界新闻`）；也可以直接问 Claude 今天的国际新闻 |
 | 视频下载 | 群里直接发视频链接即自动处理；也可用 `/mp4 <链接>` |
 | 链接解析 | 直接发抖音/快手/微博/小红书/YouTube/TikTok/X/Instagram 等链接 |
 | 网页阅读 | 群里直接发网页链接即自动读；也可用 `/read <链接>` |
@@ -621,6 +628,33 @@ PROACTIVE_GROUPS=[123456789, 987654321]
 `SELF_STUDY_ENABLED=true` 时，机器人每天可以把公开热榜和知识库资料加入本地知识库。只有同时显式开启
 `SPEECH_LEARN_ENABLED=true`，它才会读取保存在本机的群聊记录来提炼话题；否则只处理公开来源。
 默认在本机时间凌晨 5 点运行。
+
+## 国际新闻
+
+在群聊或私聊发送 `/news`（或“今日新闻”“国际新闻”），机器人会汇总最近 36 小时的外媒头条，按来源轮流展示并去重，再为最多三篇文章附上原文摘录。也可以直接问 Claude“今天有什么国际新闻”，由它调用新闻工具。插件聚合 RSS 不需要新闻 API Key；每个群默认有 10 分钟冷却。
+
+示例输出（内容仅作格式演示，实际新闻会随 RSS 更新）：
+
+```text
+📰 今日外媒头条
+1. [BBC] Headline from BBC
+2. [卫报] Headline from The Guardian
+3. [半岛电视台] Headline from Al Jazeera
+
+📖 原文摘录
+1. [BBC] Headline from BBC
+「Article excerpt…」
+```
+
+要启用纽约时间每天早 8 点的群播报，在 `.env` 中配置目标群号；群列表留空时不会自动播报，手动 `/news` 仍可使用：
+
+```dotenv
+WORLD_NEWS_BROADCAST_ENABLED=true
+WORLD_NEWS_BROADCAST_HOUR_NY=8
+WORLD_NEWS_BROADCAST_GROUPS=[123456789]
+```
+
+可用 `WORLD_NEWS_ENABLED=false` 关闭插件，或设置 `WORLD_NEWS_BROADCAST_ENABLED=false` 只关闭自动播报。其他设置（头条数量、摘录篇数、时间范围和额外 RSS 源）见 `.env.example`。
 
 ---
 
