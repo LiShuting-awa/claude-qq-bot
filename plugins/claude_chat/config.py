@@ -49,6 +49,19 @@ class Config(BaseModel):
     claude_max_tokens: int = Field(default=2048, ge=256, le=16384)
     """单次回复的最大输出 token 数。"""
 
+    claude_thinking_enabled: bool = False
+    """是否开启扩展思考（extended thinking）：先想后说，复杂问题更稳，但会更慢。"""
+
+    claude_thinking_budget_tokens: int = Field(default=1024, ge=1024, le=16384)
+    """思考预算 token 数；实际生效值不超过 max_tokens - 1，太小的余量会自动关闭思考。"""
+
+    claude_group_context_messages: int = Field(default=0, ge=0, le=30)
+    """群聊回复时带上最近几条群消息当背景，治「你们在聊什么」的断片（0=关闭）。
+    需要 proactive_chat 插件在运行（借用它的群消息缓冲）。"""
+
+    claude_group_context_minutes: int = Field(default=10, ge=1, le=120)
+    """群背景只取最近这么多分钟内的消息。"""
+
     claude_tools_enabled: bool = True
     """是否允许模型自己调用检索/网页/热榜/知识库工具。"""
 

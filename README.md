@@ -27,7 +27,9 @@
 - **国际新闻**：`/news` 聚合 BBC、卫报、半岛电视台等外媒 RSS，合并去重并摘录原文；可选每天纽约时间早 8 点向指定群播报，无需新闻 API Key。
 - **链接卡片样式**：把 ParseHub 的链接解析卡片渲染成白底简介卡。
 - **视频下载**：群里直接发视频链接就自动下载并转 MP4；B 站链接会先发一张信息卡（封面/标题/UP 主/数据），再发视频。
-- **链接分享解析**：抖音、快手、微博、小红书、贴吧、知乎、豆瓣、头条、微信视频号、酷安、皮皮虾，以及 YouTube、TikTok、X、Instagram、Facebook、Threads 等国内外平台的分享链接自动解析成视频/图集/图文。
+- **推特视频**：群里发 X/Twitter 链接自动解析，视频转 MP4 发回（默认 ≤720P），纯图推文发原图；镜像 API 优先，yt-dlp 兜底。
+- **点歌语音**：说「来一首 xxx」或发 `/点歌 歌名`，搜到歌就下载并以语音消息发回群里，点开自动播放；封面版歌曲自动避开，超长的歌自动截断。
+- **链接分享解析**：抖音、快手、微博、小红书、贴吧、知乎、豆瓣、头条、微信视频号、酷安、皮皮虾，以及 YouTube、TikTok、Instagram、Facebook、Threads 等国内外平台的分享链接自动解析成视频/图集/图文（X/推特由独立的推特视频插件接管）。
 - **入群彩蛋**：被拉进新群时，第一句固定说“听说你们都说我死了?”
 - **网页阅读**：群里发普通网页链接，自动抓正文，用 Claude 的口吻写一段感慨/点评。
 - **引用消息**：回复某条消息时，会把被引用的文字一起作为上下文。
@@ -105,17 +107,28 @@ qqbot/
 │  │  ├─ config.py           # RSS、摘录和早报配置
 │  │  ├─ news.py             # 多源 RSS 聚合、去重和原文摘录
 │  │  └─ handlers.py         # /news 命令和纽约时间早报
-│  └─ media_download/
-│     ├─ __init__.py         # 链接视频下载插件元数据
-│     ├─ config.py           # 大小/时长/冷却/cookies
-│     └─ handlers.py         # yt-dlp 下载、ffmpeg 转 MP4、发送
+│  ├─ media_download/
+│  │  ├─ __init__.py         # 链接视频下载插件元数据
+│  │  ├─ config.py           # 大小/时长/冷却/cookies
+│  │  └─ handlers.py         # yt-dlp 下载、ffmpeg 转 MP4、发送
+│  ├─ music_voice/
+│  │  ├─ __init__.py         # 点歌语音插件元数据
+│  │  ├─ config.py           # 来源/音质/时长/冷却/缓存
+│  │  ├─ music.py            # 聚合音乐 API：搜索、选歌、取链、下载、转码
+│  │  └─ handlers.py         # 「来一首 xxx」口令、/点歌 命令、语音发送
+│  └─ twitter_video/
+│     ├─ __init__.py         # 推特视频插件元数据
+│     ├─ config.py           # 清晰度/大小/冷却/镜像 API
+│     ├─ resolver.py         # fxtwitter / vxtwitter 解析、清晰度挑选
+│     └─ handlers.py         # 自动解析、/推文 命令、下载发送
 ├─ seeds/                    # 手工整理的资料，用 tools/kb_seed.py 投喂进知识库
 │  ├─ war-thunder/           # 战争雷霆：基础机制、群聊黑话对照
 │  ├─ tarkov/                # 逃离塔科夫：核心机制、弹药与护甲
 │  ├─ deepseek/              # DeepSeek 公司与模型线
 │  └─ net/                   # 网络黑话 / 梗对照
 ├─ tools/
-│  └─ kb_seed.py             # 知识库投喂 / 检索自检 / 清理工具（不经 NoneBot）
+│  ├─ kb_seed.py             # 知识库投喂 / 检索自检 / 清理工具（不经 NoneBot）
+│  └─ vocab_learn.py         # 让机器人解释短语并写入知识库的命令行工具
 ├─ data/
 │  ├─ sessions.json          # 对话历史
 │  ├─ knowledge.db           # 本地知识库（SQLite FTS5）
@@ -169,6 +182,13 @@ CLAUDE_ALLOWED_USERS=[]
 
 # 单次回复最大 token
 CLAUDE_MAX_TOKENS=2048
+
+# 扩展思考：先想后说（可选）
+CLAUDE_THINKING_ENABLED=false
+CLAUDE_THINKING_BUDGET_TOKENS=1024
+
+# 群聊回复带最近群消息当背景（需要 proactive_chat 在跑）
+CLAUDE_GROUP_CONTEXT_MESSAGES=0
 ```
 
 > `.env` 里有 API Key，**不要**把文件发给别人或提交到 Git。项目已经把它写进 `.gitignore`。
@@ -259,7 +279,8 @@ powershell -ExecutionPolicy Bypass -File .\start.ps1
 | 说话学习 | 群内 `/learn_speech`（群主/管理员）；`/learn_speech off` 停用 |
 | 国际新闻 | `/news`（别名 `/今日新闻`、`/国际新闻`、`/外媒`、`/世界新闻`）；也可以直接问 Claude 今天的国际新闻 |
 | 视频下载 | 群里直接发视频链接即自动处理；也可用 `/mp4 <链接>` |
-| 链接解析 | 直接发抖音/快手/微博/小红书/YouTube/TikTok/X/Instagram 等链接 |
+| 点歌语音 | `/点歌 晴天`；或直接说「来一首晴天」「放首歌 稻香」，语音消息点开自动播放 |
+| 链接解析 | 直接发抖音/快手/微博/小红书/YouTube/TikTok/Instagram 等链接；X/Twitter 由推特视频插件处理 |
 | 网页阅读 | 群里直接发网页链接即自动读；也可用 `/read <链接>` |
 | 联网检索 | `/search 最近两年 DeepSeek 发生了什么` |
 | 深度研究 | `/research 战争雷霆 2026 最新更新` |
@@ -718,6 +739,103 @@ https://www.bilibili.com/video/BVxxxx
 
 ---
 
+## 推特视频
+
+**群里或私聊直接发 X/Twitter 链接就会自动解析**，不需要命令：
+
+```text
+https://x.com/xxx/status/123
+```
+
+带视频的推文自动下载视频发回群里；纯图推文发原图；也可以手动：
+
+```text
+/推文 https://x.com/xxx/status/123
+```
+
+别名：`/推特`、`/tweet`。`twitter.com`、`x.com`、`fixupx.com`、`vxtwitter.com`、`fxtwitter.com` 的链接都认，`i/web/status` 分享路径、`?s=20` 追踪参数、缺 https 前缀的裸链接都能解析。
+
+- 解析走 **fxtwitter / vxtwitter 镜像 API**（无需 Key、无需登录），X 官方接口对匿名请求越来越不友好，ParseHub 的 X 平台已停用、由本插件接管；
+- 视频从镜像接口返回的多档清晰度里自动挑 **≤720P 里最清晰的**（不会为了一点点画质等大文件）；GIF 自动当视频发；
+- 发媒体前先发一条「**𝕏 作者：推文内容**」摘要（t.co 短链已清掉）；转推的视频会标注（转推 xxx），媒体取自被引用的推文；
+- 纯图推文最多发 4 张原图；视频+图片同时存在的推文只发视频；
+- 镜像接口全挂时自动回退 **yt-dlp**（本机直连 X 可用），需要登录的推文可填 `TWITTER_COOKIES_FILE`；
+- 同一用户 15 秒冷却，每天最多 20 条；同一个群同一条推文 10 分钟内只解析一次；
+- 文件只落到临时目录，发完立即删除；大小/时长超限直接拒绝；
+- 自动解析失败会提示原因；不想被提示就把 `TWITTER_NOTIFY_ERRORS` 改成 `false`。
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `TWITTER_ENABLED` | `true` | 总开关 |
+| `TWITTER_AUTO_ENABLED` | `true` | 群里发链接自动解析 |
+| `TWITTER_AUTO_GROUPS` | `[]` | 自动解析生效的群，空为全部 |
+| `TWITTER_SEND_CAPTION` | `true` | 发媒体前先发作者+内容摘要 |
+| `TWITTER_SEND_PHOTOS` | `true` | 纯图推文发原图 |
+| `TWITTER_MAX_PHOTOS` | `4` | 单条推文最多发几张图 |
+| `TWITTER_MAX_MB` | `80` | 视频大小上限 |
+| `TWITTER_MAX_DURATION_SECONDS` | `600` | 视频时长上限 |
+| `TWITTER_MAX_HEIGHT` | `720` | 视频高度上限 |
+| `TWITTER_TIMEOUT_SECONDS` | `30` | 接口/下载超时 |
+| `TWITTER_API_BASES` | fx + vx 镜像 | 镜像解析 API，按顺序尝试 |
+| `TWITTER_USE_YTDLP` | `true` | 镜像失败时 yt-dlp 兜底 |
+| `TWITTER_COOKIES_FILE` | 空 | Netscape cookies.txt（仅兜底用） |
+| `TWITTER_PROXY` | 空 | 解析/下载代理，留空借用 `MEDIA_PROXY` |
+| `TWITTER_COOLDOWN_SECONDS` | `15` | 同一用户冷却 |
+| `TWITTER_DAILY_LIMIT_PER_USER` | `20` | 每人每日上限 |
+| `TWITTER_DEDUP_SECONDS` | `600` | 同群同推文去重时间 |
+| `TWITTER_ALLOWED_GROUPS` | `[]` | 群白名单 |
+| `TWITTER_ALLOWED_USERS` | `[]` | 用户白名单 |
+| `TWITTER_NOTIFY_ERRORS` | `true` | 自动解析失败是否提示 |
+
+---
+
+## 点歌语音
+
+**群里说「来一首 xxx」就会自动搜歌，下载后以语音消息发回群里，点开就播。** 例如：
+
+```text
+来一首晴天
+放首歌 稻香
+```
+
+也可以手动命令（私聊/群聊都行）：
+
+```text
+/点歌 晴天 周杰伦
+```
+
+别名：`/点播`、`/music`。
+
+- 歌源走聚合音乐 API（默认 GD Studio，`netease` 源）；网易云官方接口对本机反爬（weapi 返回空），所以不直连；
+- 候选按「歌名匹配 + 歌手名命中」打分挑一首，封面版（深情版/女声版）会被真实原唱压下去；前 3 首取不到直链（要会员/下架）就顺延下一首；
+- 下载后统一转成 mp3（本机 ffmpeg）；超过 `MUSIC_MAX_DURATION_SECONDS` 的歌自动截断，避免语音太长；
+- 同一首歌 6 小时内缓存在 `data/music_cache`，第二次点直接发缓存；过期文件下次点歌时清理；
+- 同一用户 20 秒冷却，每天最多 20 首；同一个群同一首歌 3 分钟内只放一次；
+- 失败会简短提示（没搜到/要会员/下载失败），自动口令静默失败不刷屏；
+- 自动口令在 priority 15 抢在 Claude 闲聊（priority 20）之前处理，只有纯文本消息触发；带 @、图、链接的消息不当作点歌。
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `MUSIC_VOICE_ENABLED` | `true` | 总开关 |
+| `MUSIC_AUTO_ENABLED` | `true` | 「来一首 xxx」自动点歌 |
+| `MUSIC_AUTO_GROUPS` | `[]` | 自动点歌生效的群，空为全部 |
+| `MUSIC_ALLOWED_GROUPS` | `[]` | 群白名单 |
+| `MUSIC_ALLOWED_USERS` | `[]` | 用户白名单 |
+| `MUSIC_SOURCE` | `netease` | 曲库来源（聚合 API 支持的都行） |
+| `MUSIC_API_BASE` | `https://music-api.gdstudio.xyz/api.php` | 聚合搜索/取链 API |
+| `MUSIC_SEARCH_COUNT` | `5` | 每次搜索取几条候选 |
+| `MUSIC_BITRATE` | `320` | 音质上限（kbps） |
+| `MUSIC_MAX_MB` | `15` | 下载大小上限 |
+| `MUSIC_MAX_DURATION_SECONDS` | `600` | 超长截断阈值（秒） |
+| `MUSIC_COOLDOWN_SECONDS` | `20` | 同一用户冷却 |
+| `MUSIC_DAILY_LIMIT_PER_USER` | `20` | 每人每日上限 |
+| `MUSIC_DEDUP_SECONDS` | `180` | 同群同歌去重时间 |
+| `MUSIC_TIMEOUT_SECONDS` | `30` | 接口/下载超时 |
+| `MUSIC_CACHE_DIR` | 空 | 缓存目录，空为 `data/music_cache` |
+| `MUSIC_CACHE_HOURS` | `6` | 缓存保留时长 |
+
+---
+
 ## 链接分享解析
 
 现在用 [ByteColtX/nonebot-plugin-parsehub](https://github.com/ByteColtX/nonebot-plugin-parsehub)，底层是 [z-mio/ParseHub](https://github.com/z-mio/ParseHub)：
@@ -727,7 +845,8 @@ https://www.bilibili.com/video/BVxxxx
 - 支持 `/解析 <链接>`、`/解析平台`、`/解析开关`；
 - 同一作品 24 小时媒体缓存，命中直接发；
 - B 站不交给它：本机 B 站接口 412，B 站继续走本地 Jina 信息卡 + 480P 下载；
-- 国外平台（YouTube/TikTok/X/Facebook/Threads/Snapchat/Medium）也已启用；当前这台机器直连可解析，若以后网络受限，填 `PARSEHUB_PROXY` 即可。
+- X/推特也不交给它：官方接口对匿名请求不友好，由本地「推特视频」插件接管（见上）；
+- 国外平台（YouTube/TikTok/Facebook/Threads/Snapchat/Medium）也已启用；当前这台机器直连可解析，若以后网络受限，填 `PARSEHUB_PROXY` 即可。
 - Instagram 的 GraphQL 经常 401 / 触发登录限制，已交给本地 `yt-dlp` 兜底，不走 ParseHub。
 
 > 旧 `nonebot-plugin-parser` 和 `nonebot-plugin-resolver` 都已卸载；旧 `PARSER_*` / `RESOLVER_*` 配置不要再写。
@@ -956,6 +1075,10 @@ url: curated://war-thunder/basics
 | `CLAUDE_SYSTEM_PROMPT` | 内置人设 | 系统提示词 |
 | `CLAUDE_SYSTEM_PROMPT_FILE` | 空 | 从文件读取人格，优先级更高；相对项目根目录 |
 | `CLAUDE_MAX_TOKENS` | `2048` | 单次最大输出 token |
+| `CLAUDE_THINKING_ENABLED` | `false` | 扩展思考（extended thinking）：先想后说，复杂问题更稳，回复变慢 |
+| `CLAUDE_THINKING_BUDGET_TOKENS` | `1024` | 思考预算；实际不超过 `MAX_TOKENS - 1`，余量不足自动关闭 |
+| `CLAUDE_GROUP_CONTEXT_MESSAGES` | `0` | 群聊回复时附带最近几条群消息当背景（0=关闭；需 proactive_chat 在运行） |
+| `CLAUDE_GROUP_CONTEXT_MINUTES` | `10` | 群背景只取最近几分钟内的消息 |
 | `CLAUDE_GROUP_REQUIRE_AT` | `true` | 群聊是否必须 @ |
 | `CLAUDE_GROUP_MEMORY_MODE` | `per_user` | 群记忆按 QQ 分开；`shared` 为全群共享（历史仍带 QQ 号） |
 | `CLAUDE_ALLOWED_GROUPS` | `[]` | 群白名单，空为全部 |

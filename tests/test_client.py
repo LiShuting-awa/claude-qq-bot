@@ -31,7 +31,8 @@ def _make_client(handler, **config_kwargs):
         http_client=http_client,
         max_retries=0,
     )
-    config = Config(anthropic_api_key="test-key", claude_max_tokens=512, **config_kwargs)
+    config_kwargs.setdefault("claude_max_tokens", 512)
+    config = Config(anthropic_api_key="test-key", **config_kwargs)
     return ClaudeClient(config, sdk_client=sdk), sdk
 
 
@@ -58,6 +59,62 @@ def test_complete_sends_expected_request_and_parses_usage() -> None:
     assert captured["body"]["max_tokens"] == 512
     assert captured["body"]["system"] == "系统提示"
     assert captured["body"]["messages"] == [{"role": "user", "content": "你好"}]
+
+
+def test_thinking_enabled_sends_budget() -> None:
+    captured = {}
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx2.Response(200, json=MESSAGE_PAYLOAD)
+
+    async def scenario() -> None:
+        client, sdk = _make_client(
+            handler,
+            claude_max_tokens=2048,
+            claude_thinking_enabled=True,
+            claude_thinking_budget_tokens=1024,
+        )
+        await client.complete([{"role": "user", "content": "hi"}], "sys")
+        await sdk.close()
+
+    asyncio.run(scenario())
+    assert captured["body"]["thinking"] == {"type": "enabled", "budget_tokens": 1024}
+
+
+def test_thinking_budget_is_clamped_under_max_tokens() -> None:
+    captured = {}
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx2.Response(200, json=MESSAGE_PAYLOAD)
+
+    async def scenario() -> None:
+        # 预算 4096 > max_tokens 512：钳到 511，仍大于 1024 的下限不成立 → 直接关闭思考
+        client, sdk = _make_client(
+            handler, claude_thinking_enabled=True, claude_thinking_budget_tokens=4096
+        )
+        await client.complete([{"role": "user", "content": "hi"}], "sys")
+        await sdk.close()
+
+    asyncio.run(scenario())
+    assert "thinking" not in captured["body"]
+
+
+def test_thinking_disabled_omits_param() -> None:
+    captured = {}
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx2.Response(200, json=MESSAGE_PAYLOAD)
+
+    async def scenario() -> None:
+        client, sdk = _make_client(handler)
+        await client.complete([{"role": "user", "content": "hi"}], "sys")
+        await sdk.close()
+
+    asyncio.run(scenario())
+    assert "thinking" not in captured["body"]
 
 
 def test_authentication_error_is_translated() -> None:

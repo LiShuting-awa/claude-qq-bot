@@ -26,6 +26,7 @@ from yt_dlp import YoutubeDL
 from plugins.common.access import event_is_allowed
 from plugins.common.network import host_is_private
 from plugins.common.parsehub_media import parsehub_handles
+from plugins.common.video_url import is_video_url
 
 from . import bilibili
 from .config import Config
@@ -87,12 +88,7 @@ def _extract_url(text: str) -> str:
 
 
 def _looks_like_video(url: str) -> bool:
-    parsed = urlparse(url)
-    host = (parsed.hostname or "").casefold()
-    path = parsed.path.casefold()
-    if any(path.endswith(ext) for ext in _VIDEO_EXTENSIONS):
-        return True
-    return any(host == item or host.endswith("." + item) for item in _VIDEO_HOSTS)
+    return is_video_url(url)
 
 
 def _blocked_host(host: str) -> bool:
@@ -386,7 +382,7 @@ def _bilibili_auto_rule(event: MessageEvent) -> bool:
     if not text or text.startswith("/"):
         return False
     url = _extract_url(text)
-    return bool(url and bilibili.is_bilibili_url(url))
+    return bool(url and is_video_url(url) and bilibili.is_bilibili_url(url))
 
 
 # 保证 B 站优先由本地 Jina 链路处理，不被通用解析插件抢走；

@@ -222,6 +222,13 @@ class ClaudeClient:
                     "messages": messages,
                     "timeout": self._config.claude_timeout_seconds,
                 }
+                if self._config.claude_thinking_enabled:
+                    budget = min(
+                        self._config.claude_thinking_budget_tokens,
+                        self._config.claude_max_tokens - 1,
+                    )
+                    if budget >= 1024:
+                        kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
                 if tools:
                     kwargs["tools"] = tools
                 return await sdk.messages.create(**kwargs)
